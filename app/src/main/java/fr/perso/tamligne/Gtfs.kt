@@ -10,14 +10,32 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.zip.ZipFile
 
-/** Les deux réseaux publiés en open data par Montpellier Méditerranée Métropole. */
-enum class Network(val label: String, val baseUrl: String) {
-    URBAIN("Urbain", "https://data.montpellier3m.fr/GTFS/Urbain/"),
-    SUBURBAIN("Suburbain", "https://data.montpellier3m.fr/GTFS/Suburbain/");
+private const val DG = "https://www.data.gouv.fr/api/1/datasets/r/"
+private const val M3M = "https://data.montpellier3m.fr/"
 
-    val gtfsUrl get() = baseUrl + "GTFS.zip"
-    val alertsUrl get() = baseUrl + "Alert.pb"
-    val tripUpdatesUrl get() = baseUrl + "TripUpdate.pb"
+/**
+ * Les deux réseaux publiés en open data par Montpellier Méditerranée Métropole.
+ * Les adresses changent de temps en temps : on en essaie plusieurs, dans l'ordre
+ * (liens permanents data.gouv.fr d'abord, puis adresses directes du portail de la Métropole).
+ */
+enum class Network(
+    val label: String,
+    val gtfsUrls: List<String>,
+    val alertsUrls: List<String>,
+    val tripUpdatesUrls: List<String>,
+) {
+    URBAIN(
+        "Urbain",
+        listOf(DG + "93a29ce2-cfc8-44ff-b712-bcfd814b7f00", M3M + "GTFS/Urbain/GTFS.zip", M3M + "TAM_MMM_GTFSRT/GTFS.zip"),
+        listOf(DG + "0a5b437c-3692-4c08-9269-abc62bc6f99e", M3M + "GTFS/Urbain/Alert.pb", M3M + "TAM_MMM_GTFSRT/Alert.pb"),
+        listOf(DG + "9516d4d0-c5cd-4bdd-9cb8-1e793660c683", M3M + "GTFS/Urbain/TripUpdate.pb", M3M + "TAM_MMM_GTFSRT/TripUpdate.pb"),
+    ),
+    SUBURBAIN(
+        "Suburbain",
+        listOf(M3M + "GTFS/Suburbain/GTFS.zip", DG + "c9d1350c-8f13-4761-b603-ecb12ad10b5b"),
+        listOf(M3M + "GTFS/Suburbain/Alert.pb", DG + "5b1a9be1-2fed-4233-b2e6-7d26e7acd85e"),
+        listOf(M3M + "GTFS/Suburbain/TripUpdate.pb"),
+    );
 }
 
 data class StopRef(val id: String, val name: String)
@@ -42,15 +60,76 @@ data class Line(
 data class TripInfo(val routeId: String, val directionId: Int, val headsign: String)
 
 object Http {
-    fun get(url: String, timeoutMs: Int = 20000): ByteArray {
-        val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = timeoutMs
-        c.readTimeout = timeoutMs
-        c.setRequestProperty("User-Agent", "MaLigneTaM/1.0 (Android)")
-        c.setRequestProperty("Cache-Control", "no-cache")
-        try {
+    private const val UA = "Mozilla/5.0 (Linux; Android) MaLigneTaM/1.1"
+
+    /** Dernière adresse qui a fonctionné pour chaque liste, pour l'essayer en premier. */
+    private val preferred = java.util.concurrent.ConcurrentHashMap<List<String>, String>()
+
+    private fun ordered(urls: List<String>): List<String> {
+        val p = preferred[urls] ?: return urls
+        return listOf(p) + urls.filter { it != p }
+    }
+
+    /** Essaie chaque adresse jusqu'à ce qu'une réponde. */
+    fun getFirst(urls: List<String>, timeoutMs: Int = 15000): ByteArray {
+        val errors = ArrayList<String>()
+        for (u in ordered(urls)) {
+            try {
+                val b = get(u, timeoutMs)
+                preferred[urls] = u
+                return b
+            } catch (e: Exception) {
+                errors.add(e.message ?: e.javaClass.simpleName)
+            }
+        }
+        throw java.io.IOException(errors.joinToString(" ; "))
+    }
+
+    fun downloadFirst(urls: List<String>, dest: File) {
+        val errors = ArrayList<String>()
+        for (u in ordered(urls)) {
+            try {
+                download(u, dest)
+                preferred[urls] = u
+                return
+            } catch (e: Exception) {
+                errors.add(e.message ?: e.javaClass.simpleName)
+            }
+        }
+        throw java.io.IOException(errors.joinToString(" ; "))
+    }
+
+    private fun open(url: String, connectMs: Int, readMs: Int): HttpURLConnection {
+        var current = url
+        // Suivi manuel des redirections (data.gouv.fr redirige vers le serveur réel)
+        repeat(6) {
+            val c = URL(current).openConnection() as HttpURLConnection
+            c.connectTimeout = connectMs
+            c.readTimeout = readMs
+            c.instanceFollowRedirects = false
+            c.setRequestProperty("User-Agent", UA)
+            c.setRequestProperty("Accept", "*/*")
+            c.setRequestProperty("Cache-Control", "no-cache")
             val code = c.responseCode
-            if (code !in 200..299) throw java.io.IOException("HTTP $code pour $url")
+            if (code in 300..399) {
+                val loc = c.getHeaderField("Location")
+                c.disconnect()
+                if (loc.isNullOrEmpty()) throw java.io.IOException("Redirection vide pour $current")
+                current = URL(URL(current), loc).toString()
+                return@repeat
+            }
+            if (code !in 200..299) {
+                c.disconnect()
+                throw java.io.IOException("HTTP $code (${URL(current).host})")
+            }
+            return c
+        }
+        throw java.io.IOException("Trop de redirections pour $url")
+    }
+
+    fun get(url: String, timeoutMs: Int = 20000): ByteArray {
+        val c = open(url, timeoutMs, timeoutMs)
+        try {
             return c.inputStream.use { it.readBytes() }
         } finally {
             c.disconnect()
@@ -58,13 +137,8 @@ object Http {
     }
 
     fun download(url: String, dest: File) {
-        val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 30000
-        c.readTimeout = 60000
-        c.setRequestProperty("User-Agent", "MaLigneTaM/1.0 (Android)")
+        val c = open(url, 30000, 60000)
         try {
-            val code = c.responseCode
-            if (code !in 200..299) throw java.io.IOException("HTTP $code pour $url")
             val tmp = File(dest.path + ".part")
             c.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } }
             if (!tmp.renameTo(dest)) {
@@ -148,7 +222,7 @@ object GtfsRepository {
     @Synchronized
     fun refresh(ctx: Context, n: Network) {
         val zip = zipFile(ctx, n)
-        Http.download(n.gtfsUrl, zip)
+        Http.downloadFirst(n.gtfsUrls, zip)
         build(n, zip, linesFile(ctx, n), tripsFile(ctx, n))
         zip.delete() // on ne garde que le résumé, beaucoup plus léger
         linesCache.remove(n)

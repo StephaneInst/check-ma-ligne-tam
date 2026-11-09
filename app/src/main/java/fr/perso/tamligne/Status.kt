@@ -87,8 +87,8 @@ object Status {
         return out.values.sortedBy { it.time }.take(max)
     }
 
-    private fun fetch(url: String): Pair<RtFeed?, String?> = try {
-        Pair(GtfsRt.parse(Http.get(url)), null)
+    private fun fetch(urls: List<String>): Pair<RtFeed?, String?> = try {
+        Pair(GtfsRt.parse(Http.getFirst(urls)), null)
     } catch (e: Exception) {
         Pair(null, e.message ?: e.javaClass.simpleName)
     }
@@ -100,8 +100,8 @@ object Status {
         val alertFeeds = HashMap<Network, Pair<RtFeed?, String?>>()
         val tuFeeds = HashMap<Network, Pair<RtFeed?, String?>>()
         for (n in nets) {
-            alertFeeds[n] = fetch(n.alertsUrl)
-            if (withDepartures) tuFeeds[n] = fetch(n.tripUpdatesUrl)
+            alertFeeds[n] = fetch(n.alertsUrls)
+            if (withDepartures) tuFeeds[n] = fetch(n.tripUpdatesUrls)
         }
         val statuses = favs.map { f ->
             val (af, aerr) = alertFeeds[f.network] ?: Pair(null, "?")
