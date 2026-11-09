@@ -20,6 +20,12 @@ data class StatusResult(
     val statuses: List<FavStatus>,
     /** Clés de toutes les alertes publiées, si tous les flux ont pu être lus (sinon null). */
     val allPublishedKeys: Set<String>?,
+    /** Horodatage (s) annoncé par chaque flux d'alertes lu. */
+    val feedTimestamps: Map<Network, Long> = emptyMap(),
+    /** Erreurs de lecture des flux d'alertes. */
+    val alertErrors: Map<Network, String> = emptyMap(),
+    /** Serveur utilisé pour les alertes de chaque réseau. */
+    val sources: Map<Network, String> = emptyMap(),
 )
 
 object Status {
@@ -117,6 +123,14 @@ object Status {
         }
         val allOk = alertFeeds.values.all { it.first != null }
         val keys = if (allOk) alertFeeds.values.flatMap { p -> p.first!!.alerts.map { it.key } }.toSet() else null
-        return StatusResult(statuses, keys)
+        val tsMap = HashMap<Network, Long>()
+        val errMap = HashMap<Network, String>()
+        val srcMap = HashMap<Network, String>()
+        for ((n, p) in alertFeeds) {
+            p.first?.let { tsMap[n] = it.timestamp }
+            p.second?.let { errMap[n] = it }
+            Http.currentHost(n.alertsUrls)?.let { srcMap[n] = it }
+        }
+        return StatusResult(statuses, keys, tsMap, errMap, srcMap)
     }
 }

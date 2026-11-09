@@ -42,6 +42,7 @@ class MainActivity : Activity() {
     private lateinit var list: LinearLayout
     private lateinit var footer: TextView
     private lateinit var progress: ProgressBar
+    private lateinit var healthBanner: TextView
     private var lastStatuses: Map<String, FavStatus> = emptyMap()
     private var refreshing = false
     private val hhmm = SimpleDateFormat("HH:mm", Locale.FRANCE)
@@ -73,6 +74,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        renderHealth()
         ui.removeCallbacks(autoRefresh)
         ui.post(autoRefresh)
     }
@@ -91,6 +93,8 @@ class MainActivity : Activity() {
         menu.add(0, 1, 0, "Ajouter un arrêt")
         menu.add(0, 2, 1, "Actualiser")
         menu.add(0, 3, 2, "").isCheckable = true
+        menu.add(0, 6, 3, "Historique des perturbations")
+        menu.add(0, 7, 3, "Fiabilité / test")
         menu.add(0, 4, 3, "Mettre à jour la liste des lignes")
         menu.add(0, 5, 4, "Ouvrir tam-voyages.com")
         return true
@@ -116,6 +120,8 @@ class MainActivity : Activity() {
             }
             4 -> updateLineData()
             5 -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.tam-voyages.com")))
+            6 -> startActivity(Intent(this, HistoryActivity::class.java))
+            7 -> startActivity(Intent(this, HealthActivity::class.java))
             else -> return super.onOptionsItemSelected(item)
         }
         return true
@@ -145,17 +151,32 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(10), dp(16), dp(4))
         }
         bar.addView(Button(this).apply {
-            text = "+ Ajouter un arrêt"
+            text = "+ Arrêt"
+            isAllCaps = false
             setOnClickListener { startAdd() }
+        })
+        bar.addView(Button(this).apply {
+            text = "Historique"
+            isAllCaps = false
+            setOnClickListener { startActivity(Intent(this@MainActivity, HistoryActivity::class.java)) }
         })
         bar.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         progress = ProgressBar(this).apply { visibility = View.INVISIBLE }
         bar.addView(progress, LinearLayout.LayoutParams(dp(28), dp(28)))
         bar.addView(Button(this).apply {
-            text = "Actualiser"
+            text = "↻"
             setOnClickListener { refresh() }
         })
         root.addView(bar)
+
+        // Bandeau de fiabilité : un coup d'œil pour savoir si la surveillance tourne
+        healthBanner = text("", 13f, bold = true).apply {
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            setOnClickListener { startActivity(Intent(this@MainActivity, HealthActivity::class.java)) }
+        }
+        val blp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        blp.setMargins(dp(12), dp(4), dp(12), 0)
+        root.addView(healthBanner, blp)
 
         val scroll = ScrollView(this)
         val inner = LinearLayout(this).apply {
@@ -171,7 +192,23 @@ class MainActivity : Activity() {
         setContentView(root)
     }
 
+    private fun renderHealth() {
+        val s = Health.summary(this)
+        if (s.level == Health.Level.NEUTRAL) { healthBanner.visibility = View.GONE; return }
+        healthBanner.visibility = View.VISIBLE
+        val icon = when (s.level) { Health.Level.OK -> "✓"; Health.Level.WARN -> "!"; else -> "✗" }
+        val firstIssue = s.details.firstOrNull { it.startsWith("✗") || it.startsWith("!") }
+        val auto = s.details.firstOrNull { it.contains("vérification automatique") }
+        healthBanner.text = "$icon ${s.title}" + ((firstIssue ?: auto)?.let { " · " + it.drop(2) } ?: "") + "  ›"
+        healthBanner.setTextColor(Ui.levelColor(s.level))
+        healthBanner.background = GradientDrawable().apply {
+            setColor(Ui.levelBg(s.level))
+            cornerRadius = dp(10).toFloat()
+        }
+    }
+
     private fun render() {
+        renderHealth()
         list.removeAllViews()
         val favs = Prefs.favorites(this)
         if (favs.isEmpty()) {
@@ -339,16 +376,22 @@ class MainActivity : Activity() {
         refreshing = true
         progress.visibility = View.VISIBLE
         bg.execute {
+            var err: String? = null
             val res = try {
                 Status.compute(this, favs, withDepartures = true)
             } catch (e: Exception) {
+                err = e.message ?: e.javaClass.simpleName
                 null
             }
-            if (res != null) {
-                // Ce qui est affiché ici n'a pas besoin d'être notifié ensuite.
-                res.allPublishedKeys?.let { Prefs.pruneSeen(this, it) }
-                Prefs.markSeen(this, res.statuses.flatMap { s -> s.alerts.map { it.alert.key } })
-            }
+            try {
+                if (res != null) {
+                    // Ce qui est affiché ici n'a pas besoin d'être notifié ensuite.
+                    res.allPublishedKeys?.let { Prefs.pruneSeen(this, it) }
+                    Prefs.markSeen(this, res.statuses.flatMap { s -> s.alerts.map { it.alert.key } })
+                    History.record(this, res)
+                }
+                Health.recordCheck(this, "appli", res, err)
+            } catch (_: Exception) {}
             ui.post {
                 refreshing = false
                 progress.visibility = View.INVISIBLE

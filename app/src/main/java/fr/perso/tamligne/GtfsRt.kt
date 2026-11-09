@@ -53,7 +53,7 @@ class ProtoReader(private val buf: ByteArray, private var pos: Int = 0, private 
         when (wireType) {
             0 -> readVarint()
             1 -> pos += 8
-            2 -> pos += readLength()
+            2 -> { val len = readLength(); pos += len } // lire la longueur AVANT de déplacer pos
             5 -> pos += 4
             else -> throw IllegalStateException("type de fil inconnu $wireType")
         }
@@ -120,7 +120,11 @@ object GtfsRt {
             val (field, wt) = r.readTag()
             when {
                 field == 1 && wt == 2 -> timestamp = parseHeader(r.readMessage())
-                field == 2 && wt == 2 -> parseEntity(r.readMessage(), alerts, updates)
+                field == 2 && wt == 2 -> {
+                    val sub = r.readMessage()
+                    // Une entité mal formée ne doit pas faire perdre tout le flux
+                    try { parseEntity(sub, alerts, updates) } catch (_: Exception) {}
+                }
                 else -> r.skip(wt)
             }
         }

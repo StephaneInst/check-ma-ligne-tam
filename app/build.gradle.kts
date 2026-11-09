@@ -11,8 +11,8 @@ android {
         applicationId = "fr.perso.tamligne"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     // Clé fixe versionnée : chaque APK compilé par GitHub a la même signature,

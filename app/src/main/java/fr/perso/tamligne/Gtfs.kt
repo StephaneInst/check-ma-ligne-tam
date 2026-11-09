@@ -65,6 +65,9 @@ object Http {
     /** Dernière adresse qui a fonctionné pour chaque liste, pour l'essayer en premier. */
     private val preferred = java.util.concurrent.ConcurrentHashMap<List<String>, String>()
 
+    /** Serveur actuellement utilisé pour une liste d'adresses (pour l'écran Fiabilité). */
+    fun currentHost(urls: List<String>): String? = preferred[urls]?.let { URL(it).host }
+
     private fun ordered(urls: List<String>): List<String> {
         val p = preferred[urls] ?: return urls
         return listOf(p) + urls.filter { it != p }
