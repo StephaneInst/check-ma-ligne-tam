@@ -11,8 +11,10 @@ android {
         applicationId = "fr.perso.tamligne"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2"
+        // Numéro de version fourni par la compilation GitHub (1.2.<n° de compilation>)
+        val run = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
+        versionCode = 100 + run
+        versionName = System.getenv("APP_VERSION") ?: "1.2.0"
     }
 
     // Clé fixe versionnée : chaque APK compilé par GitHub a la même signature,

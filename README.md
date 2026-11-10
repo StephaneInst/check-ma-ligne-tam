@@ -9,7 +9,8 @@ Petite app Android pour suivre **ses arrêts** du réseau TaM (Montpellier) :
 
 ## Installer
 
-1. Ouvre la page **Releases** du dépôt depuis ton téléphone → `MaLigneTaM.apk`.
+1. Depuis ton téléphone : https://github.com/StephaneInst/check-ma-ligne-tam/releases/latest/download/MaLigneTaM.apk
+   (ou, pour les mises à jour automatiques, ajoute l'adresse du dépôt dans **Obtainium**).
 2. Ouvre le fichier ; Android demande d'autoriser l'installation depuis le navigateur : accepte.
 3. Au premier lancement, autorise les notifications.
 

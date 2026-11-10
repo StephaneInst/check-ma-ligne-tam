@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  APP_VERSION: "1.2.${{ github.run_number }}"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,15 +29,15 @@ jobs:
       - name: Compiler
         run: gradle assembleDebug --no-daemon --stacktrace
 
-      - name: Publier l'APK (Release "derniere-version")
+      - name: Publier l'APK (une release numérotée par version, pour Obtainium)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk MaLigneTaM.apk
           gh release delete derniere-version --yes --cleanup-tag || true
-          gh release create derniere-version MaLigneTaM.apk \
-            --title "Ma ligne TaM – dernière version" \
-            --notes "APK compilé automatiquement depuis le commit ${GITHUB_SHA::7}. Télécharge MaLigneTaM.apk depuis ton téléphone et ouvre-le pour l'installer."
+          gh release create "v$APP_VERSION" MaLigneTaM.apk --latest \
+            --title "Ma ligne TaM $APP_VERSION" \
+            --notes "Version $APP_VERSION, compilée automatiquement depuis le commit ${GITHUB_SHA::7}. Télécharge MaLigneTaM.apk depuis ton téléphone et ouvre-le pour l'installer."
 
       - uses: actions/upload-artifact@v4
         with:
